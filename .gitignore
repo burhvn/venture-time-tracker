@@ -1,0 +1,9 @@
+# Your actual time data — never commit this
+time-data.json
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.swp
+.vscode/
+.idea/

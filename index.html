@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Venture Time Tracker</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#f6f7f9; --panel:#ffffff; --ink:#1c2230; --muted:#6b7280; --line:#e8eaef;
+    --accent:#6C5CE7; --accent-soft:#efedfd; --good:#27AE60; --warn:#F2994A; --shadow:0 1px 3px rgba(20,24,40,.06),0 8px 24px rgba(20,24,40,.05);
+    --radius:14px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--ink);-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1080px;margin:0 auto;padding:22px 18px 80px}
+  header.top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px;flex-wrap:wrap}
+  .brand{display:flex;align-items:center;gap:11px}
+  .brand .dot{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,var(--accent),#8b7bf0);display:flex;align-items:center;justify-content:center;color:#fff;font-size:18px}
+  .brand h1{font-size:18px;margin:0;font-weight:650;letter-spacing:-.2px}
+  .brand p{margin:0;font-size:12px;color:var(--muted)}
+  .filebar{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}
+  .fstat{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:999px;background:#fff;border:1px solid var(--line)}
+  .fstat .led{width:8px;height:8px;border-radius:50%;background:#cbd0d8}
+  .fstat.on .led{background:var(--good)}
+  .tabs{display:flex;gap:4px;background:#eceef2;padding:4px;border-radius:12px;margin-bottom:18px;width:fit-content;flex-wrap:wrap}
+  .tabs button{border:0;background:transparent;padding:8px 16px;border-radius:9px;font-size:13.5px;font-weight:550;color:var(--muted);cursor:pointer;transition:.15s}
+  .tabs button.active{background:#fff;color:var(--ink);box-shadow:var(--shadow)}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:18px;margin-bottom:16px}
+  .panel h2{margin:0 0 4px;font-size:15px;font-weight:620}
+  .panel .sub{font-size:12.5px;color:var(--muted);margin:0 0 14px}
+  .row{display:flex;gap:12px;flex-wrap:wrap}
+  .col{flex:1;min-width:180px}
+  label.fld{display:block;font-size:11.5px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin:0 0 5px}
+  input,select,textarea{width:100%;padding:10px 11px;border:1px solid var(--line);border-radius:10px;font-size:14px;font-family:inherit;background:#fff;color:var(--ink)}
+  input:focus,select:focus,textarea:focus{outline:0;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+  textarea{resize:vertical;min-height:42px}
+  .btn{border:0;border-radius:10px;padding:10px 16px;font-size:13.5px;font-weight:600;cursor:pointer;font-family:inherit;transition:.15s}
+  .btn.primary{background:var(--accent);color:#fff}
+  .btn.primary:hover{filter:brightness(1.05)}
+  .btn.ghost{background:#fff;border:1px solid var(--line);color:var(--ink)}
+  .btn.ghost:hover{border-color:#cfd4dd}
+  .btn.danger{background:#fff;border:1px solid #f2c9c9;color:#c0392b}
+  .btn.sm{padding:6px 11px;font-size:12px}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+  /* timer */
+  .run-card{display:flex;flex-direction:column;gap:10px;border:1px solid var(--line);border-radius:12px;padding:11px 14px;margin-top:10px;background:linear-gradient(180deg,#fcfcff,#fff)}
+  .run-top{display:flex;align-items:center;justify-content:space-between;gap:14px;width:100%}
+  .run-note{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:9px;font-size:13px;font-family:inherit;background:#fff;color:var(--ink)}
+  .run-note:focus{outline:0;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+  .run-card .left{display:flex;align-items:center;gap:13px;min-width:0}
+  .run-card .rclock{font-variant-numeric:tabular-nums;font-size:23px;font-weight:600;color:var(--accent);min-width:104px;letter-spacing:-.5px}
+  .run-card .info{font-size:13.5px;min-width:0;line-height:1.3}
+  .run-card .info b{font-weight:620}
+  .run-card .info .a{color:var(--muted);font-size:12px}
+  .run-empty{color:var(--muted);font-size:13px;padding:12px 2px}
+  .run-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:14px}
+  .run-head .lbl{font-size:11.5px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+  .live{width:8px;height:8px;border-radius:50%;background:var(--good);display:inline-block;animation:pulse 1.4s infinite}
+  .live.paused{background:#c2c7d0;animation:none}
+  .run-card.paused{background:#fafbfc}
+  .run-card.paused .rclock{color:var(--muted)}
+  .pausedtag{font-size:10.5px;font-weight:600;color:#9097a3;text-transform:uppercase;letter-spacing:.4px;margin-left:4px}
+  .chip{display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:999px;font-size:11.5px;font-weight:600;background:var(--accent-soft);color:var(--accent)}
+  .vdot{width:10px;height:10px;border-radius:50%;display:inline-block}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);font-weight:600;padding:8px 10px;border-bottom:1px solid var(--line)}
+  td{padding:9px 10px;border-bottom:1px solid #f1f2f5;vertical-align:middle}
+  tr:last-child td{border-bottom:0}
+  .tag{display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;background:#eef0f4;color:#4b5160}
+  .pill-bill{font-size:11px;font-weight:600;color:var(--good)}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}
+  .kpi{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;box-shadow:var(--shadow)}
+  .kpi .v{font-size:24px;font-weight:680;letter-spacing:-.5px}
+  .kpi .l{font-size:12px;color:var(--muted);margin-top:2px}
+  .kpi .d{font-size:11.5px;font-weight:600;margin-top:4px}
+  .chart-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .chart-box{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:16px}
+  .chart-box h3{margin:0 0 12px;font-size:13.5px;font-weight:620}
+  .chart-box canvas{max-height:260px}
+  .manage-card{border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px}
+  .manage-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
+  .manage-head .name{display:flex;align-items:center;gap:9px;font-weight:600;font-size:14.5px}
+  .act-row{display:flex;align-items:center;gap:8px;padding:7px 0;border-top:1px dashed #eceef2;font-size:13.5px}
+  .act-row:first-child{border-top:0}
+  .act-row .grow{flex:1}
+  .act-row.arch{opacity:.6}
+  .arch-head{font-size:11.5px;font-weight:600;color:var(--muted);cursor:pointer;padding:9px 0 2px;margin-top:4px;border-top:1px dashed #eceef2;user-select:none}
+  .arch-head:hover{color:var(--ink)}
+  .muted{color:var(--muted)}
+  .empty{text-align:center;color:var(--muted);font-size:13.5px;padding:26px}
+  .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#1c2230;color:#fff;padding:10px 18px;border-radius:10px;font-size:13px;opacity:0;transition:.25s;pointer-events:none;z-index:100}
+  .toast.show{opacity:1}
+  .modal-bg{position:fixed;inset:0;background:rgba(20,24,40,.4);display:none;align-items:center;justify-content:center;z-index:60;padding:16px}
+  .modal-bg.show{display:flex}
+  .modal{background:#fff;border-radius:16px;padding:20px;width:100%;max-width:440px;box-shadow:0 20px 60px rgba(0,0,0,.2)}
+  .modal h3{margin:0 0 14px;font-size:16px}
+  .modal .actions{display:flex;gap:8px;justify-content:flex-end;margin-top:18px}
+  .seg{display:flex;gap:4px;background:#eceef2;padding:3px;border-radius:9px;width:fit-content}
+  .seg button{border:0;background:transparent;padding:6px 13px;border-radius:7px;font-size:12.5px;font-weight:600;color:var(--muted);cursor:pointer}
+  .seg button.active{background:#fff;color:var(--ink);box-shadow:var(--shadow)}
+  .hide{display:none!important}
+  .banner{background:#fff7ed;border:1px solid #fde4c8;color:#9a5b1a;padding:10px 14px;border-radius:10px;font-size:12.5px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+  @media(max-width:760px){.kpis{grid-template-columns:repeat(2,1fr)}.chart-grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <div class="dot">&#9203;</div>
+      <div><h1>Venture Time Tracker</h1><p>Hours &amp; value across your ventures</p></div>
+    </div>
+    <div class="filebar">
+      <span id="fstat" class="fstat"><span class="led"></span><span id="fstatTxt">Not connected</span></span>
+    </div>
+  </header>
+
+  <div class="tabs">
+    <button data-tab="track" class="active">Track</button>
+    <button data-tab="analytics">Analytics</button>
+    <button data-tab="manage">Ventures &amp; Activities</button>
+    <button data-tab="data">Data &amp; Backup</button>
+  </div>
+
+  <!-- ============ TRACK ============ -->
+  <section id="tab-track">
+    <div id="fileBanner" class="banner hide">
+      <span>Your data is saving in this browser. Connect it to a <b>local file</b> on your computer so it's never lost.</span>
+      <button class="btn ghost sm" onclick="connectFile()">Connect data file</button>
+    </div>
+
+    <div class="panel">
+      <h2>Timers</h2>
+      <p class="sub">Run several at once for parallel or background work. Each timer saves its own block when you stop it.</p>
+      <div class="row">
+        <div class="col"><label class="fld">Venture</label><select id="t_venture"></select></div>
+        <div class="col"><label class="fld">Activity</label><select id="t_activity"></select></div>
+        <div class="col" style="max-width:150px"><label class="fld">Type</label><select id="t_tag"></select></div>
+        <div style="display:flex;align-items:flex-end"><button class="btn primary" onclick="startTimer()">Start timer</button></div>
+      </div>
+      <div class="run-head">
+        <span class="lbl">Running now</span>
+        <button id="stopAllBtn" class="btn ghost sm hide" onclick="stopAll()">Stop all &amp; save</button>
+      </div>
+      <div id="runningWrap"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Add entry manually</h2>
+      <p class="sub">Backfill a session you forgot to time.</p>
+      <div class="row">
+        <div class="col"><label class="fld">Venture</label><select id="m_venture"></select></div>
+        <div class="col"><label class="fld">Activity</label><select id="m_activity"></select></div>
+        <div class="col" style="max-width:150px"><label class="fld">Type</label><select id="m_tag"></select></div>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <div class="col" style="max-width:160px"><label class="fld">Date</label><input type="date" id="m_date"></div>
+        <div class="col" style="max-width:130px"><label class="fld">Hours</label><input type="number" id="m_hours" step="0.25" min="0" placeholder="1.5"></div>
+        <div class="col" style="max-width:150px"><label class="fld">Billable</label><select id="m_bill"><option value="no">Non-billable</option><option value="yes">Billable</option></select></div>
+        <div class="col" style="max-width:140px"><label class="fld">Rate &pound;/hr</label><input type="number" id="m_rate" step="1" min="0" placeholder="0"></div>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <div class="col"><label class="fld">Note</label><input type="text" id="m_note" placeholder="What did you do?"></div>
+        <div style="display:flex;align-items:flex-end"><button class="btn primary" onclick="addManual()">Add entry</button></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div><h2>Recent entries</h2><p class="sub" style="margin:0">Click an entry to edit or delete.</p></div>
+        <select id="recentFilter" style="max-width:200px" onchange="renderRecent()"></select>
+      </div>
+      <div id="recentWrap"></div>
+    </div>
+  </section>
+
+  <!-- ============ ANALYTICS ============ -->
+  <section id="tab-analytics" class="hide">
+    <div class="panel" style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+      <div class="seg" id="rangeSeg">
+        <button data-r="7">7d</button>
+        <button data-r="30" class="active">30d</button>
+        <button data-r="90">90d</button>
+        <button data-r="365">1y</button>
+        <button data-r="all">All</button>
+        <button data-r="custom">Custom</button>
+      </div>
+      <div id="customDates" class="hide" style="display:flex;align-items:center;gap:8px">
+        <input type="date" id="customFrom" onchange="renderAnalytics()" style="max-width:160px" title="Start date">
+        <span class="muted" style="font-size:12px">to</span>
+        <input type="date" id="customTo" onchange="renderAnalytics()" style="max-width:160px" title="End date (leave blank for a single day)">
+        <button class="btn ghost sm" onclick="clearCustom()" title="Clear dates">Clear</button>
+      </div>
+      <div style="max-width:210px;flex:1"><select id="a_venture" onchange="renderAnalytics()"></select></div>
+      <div style="max-width:210px;flex:1"><select id="a_activity" onchange="renderAnalytics()" disabled><option value="">All activities</option></select></div>
+      <div class="muted" id="rangeLabel" style="font-size:12.5px"></div>
+    </div>
+
+    <div class="kpis">
+      <div class="kpi"><div class="v" id="k_hours">0h</div><div class="l">Total hours</div><div class="d" id="k_hours_d"></div></div>
+      <div class="kpi"><div class="v" id="k_value">&pound;0</div><div class="l">Billable value</div><div class="d muted" id="k_value_d"></div></div>
+      <div class="kpi"><div class="v" id="k_sessions">0</div><div class="l">Sessions</div><div class="d muted" id="k_sessions_d"></div></div>
+      <div class="kpi"><div class="v" id="k_avg">0h</div><div class="l">Avg / day</div><div class="d muted" id="k_avg_d"></div></div>
+    </div>
+
+    <div class="chart-grid">
+      <div class="chart-box"><h3>Hours by venture</h3><canvas id="chVenture"></canvas></div>
+      <div class="chart-box"><h3>Hours by activity type</h3><canvas id="chTag"></canvas></div>
+      <div class="chart-box"><h3>Hours over time</h3><canvas id="chTime"></canvas></div>
+      <div class="chart-box"><h3>Billable value by venture (&pound;)</h3><canvas id="chValue"></canvas></div>
+    </div>
+    <div class="chart-grid" style="margin-top:16px">
+      <div class="chart-box"><h3>Top activities (hours)</h3><canvas id="chActivity" style="max-height:300px"></canvas></div>
+      <div class="chart-box"><h3>Billable value by activity (&pound;)</h3><canvas id="chValueAct" style="max-height:300px"></canvas></div>
+    </div>
+  </section>
+
+  <!-- ============ MANAGE ============ -->
+  <section id="tab-manage" class="hide">
+    <div class="panel">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <h2>Ventures &amp; activities</h2>
+        <button class="btn primary sm" onclick="openVenture()">+ New venture</button>
+      </div>
+      <p class="sub">Add or edit ventures, then their activities (e.g. Marketing, Sales, a specific client).</p>
+      <div id="manageWrap"></div>
+    </div>
+    <div class="panel">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <h2>Activity types</h2>
+        <button class="btn ghost sm" onclick="addTag()">+ Add type</button>
+      </div>
+      <p class="sub">Cross-venture labels for rollups in Analytics.</p>
+      <div id="tagWrap"></div>
+    </div>
+  </section>
+
+  <!-- ============ DATA ============ -->
+  <section id="tab-data" class="hide">
+    <div class="panel">
+      <h2>Git-backed data file</h2>
+      <p class="sub">Your live data lives safely in this browser and can also write to a JSON file on your computer, so a git commit becomes your backup.</p>
+      <div class="row">
+        <button class="btn primary" onclick="connectFile()">Connect / create data file</button>
+        <button class="btn ghost" onclick="saveToFileNow()">Save to file now</button>
+        <button class="btn ghost" onclick="loadFromFile()">Reload from file</button>
+      </div>
+      <p class="sub" style="margin-top:12px">Recommended: save it as <code>time-data.json</code> next to this file. If you keep it in a git repo, each commit becomes a versioned backup.</p>
+    </div>
+    <div class="panel">
+      <h2>Manual backup</h2>
+      <p class="sub">Works in any browser. Export a JSON copy, or restore from one.</p>
+      <div class="row">
+        <button class="btn ghost" onclick="exportJSON()">Export JSON</button>
+        <button class="btn ghost" onclick="exportCSV()">Export CSV (for invoicing)</button>
+        <label class="btn ghost" style="display:inline-block">Import JSON<input type="file" accept=".json" onchange="importJSON(event)" class="hide"></label>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Danger zone</h2>
+      <p class="sub">Wipe all entries (keeps ventures &amp; activities), or reset everything.</p>
+      <div class="row">
+        <button class="btn danger" onclick="if(confirm('Delete ALL time entries? Ventures stay.')){state.entries=[];save();toast('Entries cleared');refreshAll();}">Clear all entries</button>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- Modal -->
+<div class="modal-bg" id="modalBg"><div class="modal" id="modalBody"></div></div>
+
+<script>
+/* ============================ STATE & STORAGE ============================ */
+const DB_NAME='vtt_db', STORE='kv';
+let db, fileHandle=null, state=null, runningTimers=[], tickHandle=null;
+const charts={};
+
+function idb(){return new Promise((res,rej)=>{const r=indexedDB.open(DB_NAME,1);r.onupgradeneeded=()=>r.result.createObjectStore(STORE);r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);});}
+function kvGet(k){return new Promise((res)=>{const t=db.transaction(STORE,'readonly').objectStore(STORE).get(k);t.onsuccess=()=>res(t.result);t.onerror=()=>res(null);});}
+function kvSet(k,v){return new Promise((res)=>{const t=db.transaction(STORE,'readwrite').objectStore(STORE).put(v,k);t.onsuccess=()=>res();t.onerror=()=>res();});}
+
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+const todayStr=()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');};
+
+function seed(){
+  const V=(name,color)=>({id:uid(),name,color,archived:false});
+  const vs=[V('Client Work','#6C5CE7'),V('Personal Project','#2D9CDB'),V('Side Business','#F2994A'),V('Learning','#27AE60')];
+  const A=(vid,name,bill,rate)=>({id:uid(),ventureId:vid,name,defaultBillable:!!bill,defaultRate:rate||0,archived:false});
+  const acts=[
+    A(vs[0].id,'Client delivery',1,50),A(vs[0].id,'Sales',0,0),A(vs[0].id,'Admin',0,0),
+    A(vs[1].id,'Build',0,0),A(vs[1].id,'Marketing',0,0),
+    A(vs[2].id,'Operations',0,0),A(vs[2].id,'Sales',0,0),
+    A(vs[3].id,'Courses',0,0),
+  ];
+  return {version:1,ventures:vs,activities:acts,
+    tags:['Marketing','Sales','Client','Admin','Build','Community','Learning'].map(n=>({id:uid(),name:n})),
+    entries:[], updated:Date.now()};
+}
+
+async function boot(){
+  db=await idb();
+  // restore file handle
+  try{const h=await kvGet('fileHandle');if(h){fileHandle=h;}}catch(e){}
+  const saved=await kvGet('state');
+  state = saved || seed();
+  if(!saved) await save();
+  // restore running timers (migrate old {start} shape -> {accMs,runningSince})
+  const tsaved=await kvGet('timers');
+  runningTimers=(Array.isArray(tsaved)?tsaved:[]).map(t=>{
+    const n=t.accMs===undefined
+      ? {id:t.id,ventureId:t.ventureId,activityId:t.activityId,tagId:t.tagId,accMs:0,runningSince:t.start||Date.now()}
+      : t;
+    n.note=n.note||''; return n;
+  });
+  if(runningTimers.some(t=>t.runningSince)) startTick();
+  // try silent file access
+  if(fileHandle){
+    try{const p=await fileHandle.queryPermission({mode:'readwrite'});if(p==='granted'){setFileStat(true);}else setFileStat(false,true);}catch(e){setFileStat(false);}
+  }
+  document.getElementById('fileBanner').classList.toggle('hide', !!fileHandle);
+  document.getElementById('m_date').value=todayStr();
+  refreshAll();
+}
+
+async function save(){
+  state.updated=Date.now();
+  await kvSet('state',state);
+  if(fileHandle){
+    try{const p=await fileHandle.queryPermission({mode:'readwrite'});if(p==='granted'){await writeFile();}}catch(e){}
+  }
+}
+
+/* ============================ FILE SYSTEM ACCESS ============================ */
+async function connectFile(){
+  if(!window.showSaveFilePicker){toast('Your browser does not support direct file save. Use Export JSON instead.');return;}
+  try{
+    fileHandle=await window.showSaveFilePicker({suggestedName:'time-data.json',types:[{description:'JSON',accept:{'application/json':['.json']}}]});
+    // if file already has content, ask to load
+    const f=await fileHandle.getFile();const txt=await f.text();
+    if(txt.trim().length>20){
+      if(confirm('This file already has data. Load it (replaces what is in the browser)? Cancel = overwrite file with current data.')){
+        state=JSON.parse(txt);
+      }
+    }
+    await kvSet('fileHandle',fileHandle);
+    await writeFile();await kvSet('state',state);
+    setFileStat(true);document.getElementById('fileBanner').classList.add('hide');
+    toast('Data file connected');refreshAll();
+  }catch(e){if(e.name!=='AbortError')toast('Could not connect file');}
+}
+async function writeFile(){const w=await fileHandle.createWritable();await w.write(JSON.stringify(state,null,2));await w.close();}
+async function saveToFileNow(){
+  if(!fileHandle){return connectFile();}
+  try{const p=await fileHandle.requestPermission({mode:'readwrite'});if(p!=='granted'){toast('Permission denied');return;}await writeFile();setFileStat(true);toast('Saved to file');}catch(e){toast('Save failed');}
+}
+async function loadFromFile(){
+  if(!fileHandle){return connectFile();}
+  try{const p=await fileHandle.requestPermission({mode:'readwrite'});if(p!=='granted')return;const f=await fileHandle.getFile();state=JSON.parse(await f.text());await kvSet('state',state);setFileStat(true);refreshAll();toast('Reloaded from file');}catch(e){toast('Could not read file');}
+}
+function setFileStat(on,reauth){
+  const el=document.getElementById('fstat'),t=document.getElementById('fstatTxt');
+  el.classList.toggle('on',on);
+  t.textContent=on?'File connected':(reauth?'Click to reconnect':'Not connected');
+  el.style.cursor='pointer';el.onclick=on?saveToFileNow:connectFile;
+}
+
+/* ============================ TIMERS (multiple, concurrent, pausable) ============================ */
+function elapsedOf(t){return t.accMs + (t.runningSince ? Date.now()-t.runningSince : 0);}
+function startTimer(){
+  const v=document.getElementById('t_venture').value, a=document.getElementById('t_activity').value, tg=document.getElementById('t_tag').value;
+  if(!v||!a){toast('Pick a venture and activity first');return;}
+  runningTimers.push({id:uid(),ventureId:v,activityId:a,tagId:tg||null,accMs:0,runningSince:Date.now(),note:''});
+  kvSet('timers',runningTimers);
+  startTick();renderRunning();
+  toast('Timer started');
+}
+function setTimerNote(id,val){const t=runningTimers.find(x=>x.id===id);if(!t)return;t.note=val;kvSet('timers',runningTimers);}
+function pauseTimer(id){
+  const t=runningTimers.find(x=>x.id===id);if(!t||!t.runningSince)return;
+  t.accMs+=Date.now()-t.runningSince;t.runningSince=null;
+  kvSet('timers',runningTimers);
+  if(!runningTimers.some(x=>x.runningSince)) stopTick();
+  renderRunning();
+}
+function resumeTimer(id){
+  const t=runningTimers.find(x=>x.id===id);if(!t||t.runningSince)return;
+  t.runningSince=Date.now();
+  kvSet('timers',runningTimers);
+  startTick();renderRunning();
+}
+function stopTimer(id){
+  const t=runningTimers.find(x=>x.id===id);if(!t)return;
+  const minutes=elapsedOf(t)/60000;
+  if(minutes>=0.1){
+    const act=state.activities.find(x=>x.id===t.activityId);
+    state.entries.push({id:uid(),ventureId:t.ventureId,activityId:t.activityId,tagId:t.tagId||null,date:todayStr(),
+      minutes:Math.round(minutes),billable:act?act.defaultBillable:false,rate:act?act.defaultRate:0,note:t.note||'',createdAt:Date.now()});
+    toast('Session saved');
+  }else toast('Too short to save');
+  runningTimers=runningTimers.filter(x=>x.id!==id);
+  kvSet('timers',runningTimers);
+  if(!runningTimers.some(x=>x.runningSince)) stopTick();
+  save();refreshAll();
+}
+function stopAll(){[...runningTimers].forEach(t=>stopTimer(t.id));}
+function startTick(){if(!tickHandle){tickHandle=setInterval(tick,1000);}tick();}
+function stopTick(){clearInterval(tickHandle);tickHandle=null;updateTitle();}
+function updateTitle(){const n=runningTimers.filter(t=>t.runningSince).length;document.title=(n?'('+n+') ⏱ ':'')+'Venture Time Tracker';}
+function tick(){
+  runningTimers.forEach(t=>{const el=document.getElementById('clk_'+t.id);if(el)el.textContent=fmtElapsed(elapsedOf(t));});
+  updateTitle();
+}
+function fmtElapsed(ms){const s=Math.floor(ms/1000);return String(Math.floor(s/3600)).padStart(2,'0')+':'+String(Math.floor(s%3600/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');}
+function renderRunning(){
+  const wrap=document.getElementById('runningWrap');
+  document.getElementById('stopAllBtn').classList.toggle('hide',runningTimers.length<2);
+  if(!runningTimers.length){wrap.innerHTML='<div class="run-empty">No timers running. Pick a venture and activity above, then Start.</div>';return;}
+  wrap.innerHTML=runningTimers.map(t=>{
+    const v=state.ventures.find(x=>x.id===t.ventureId),a=state.activities.find(x=>x.id===t.activityId),tg=state.tags.find(x=>x.id===t.tagId);
+    const paused=!t.runningSince;
+    const status=paused?'<span class="live paused"></span> <b>'+esc(v?v.name:'?')+'</b> <span class="pausedtag">Paused</span>'
+                       :'<span class="live"></span> <b>'+esc(v?v.name:'?')+'</b>';
+    const pauseBtn=paused
+      ? '<button class="btn ghost sm" onclick="resumeTimer(\''+t.id+'\')">Resume</button>'
+      : '<button class="btn ghost sm" onclick="pauseTimer(\''+t.id+'\')">Pause</button>';
+    return '<div class="run-card'+(paused?' paused':'')+'"><div class="run-top"><div class="left">'+
+      '<span class="rclock" id="clk_'+t.id+'">'+fmtElapsed(elapsedOf(t))+'</span>'+
+      '<span class="vdot" style="background:'+(v?v.color:'#ccc')+'"></span>'+
+      '<div class="info"><div>'+status+'</div>'+
+      '<div class="a">'+esc(a?a.name:'?')+(tg?' &middot; '+esc(tg.name):'')+'</div></div></div>'+
+      '<div style="display:flex;gap:6px">'+pauseBtn+
+      '<button class="btn ghost sm" onclick="stopTimer(\''+t.id+'\')">Stop &amp; save</button></div></div>'+
+      '<input class="run-note" placeholder="Add a note for this session…" value="'+esc(t.note||'')+'" oninput="setTimerNote(\''+t.id+'\',this.value)">'+
+      '</div>';
+  }).join('');
+}
+
+/* ============================ MANUAL ENTRY ============================ */
+function addManual(){
+  const v=document.getElementById('m_venture').value,a=document.getElementById('m_activity').value;
+  const hrs=parseFloat(document.getElementById('m_hours').value);
+  if(!v||!a){toast('Pick a venture and activity');return;}
+  if(!hrs||hrs<=0){toast('Enter hours');return;}
+  state.entries.push({id:uid(),ventureId:v,activityId:a,tagId:document.getElementById('m_tag').value||null,
+    date:document.getElementById('m_date').value||todayStr(),minutes:Math.round(hrs*60),
+    billable:document.getElementById('m_bill').value==='yes',rate:parseFloat(document.getElementById('m_rate').value)||0,
+    note:document.getElementById('m_note').value.trim(),createdAt:Date.now()});
+  save();
+  document.getElementById('m_hours').value='';document.getElementById('m_note').value='';document.getElementById('m_rate').value='';
+  toast('Entry added');refreshAll();
+}
+
+/* ============================ EDIT ENTRY ============================ */
+function editEntry(id){
+  const e=state.entries.find(x=>x.id===id);if(!e)return;
+  const vOpts=state.ventures.map(v=>'<option value="'+v.id+'" '+(v.id===e.ventureId?'selected':'')+'>'+esc(v.name)+'</option>').join('');
+  const aOpts=state.activities.filter(a=>a.ventureId===e.ventureId).map(a=>'<option value="'+a.id+'" '+(a.id===e.activityId?'selected':'')+'>'+esc(a.name)+'</option>').join('');
+  const tOpts='<option value="">&mdash;</option>'+state.tags.map(t=>'<option value="'+t.id+'" '+(t.id===e.tagId?'selected':'')+'>'+esc(t.name)+'</option>').join('');
+  modal('Edit entry',
+    '<div class="row"><div class="col"><label class="fld">Venture</label><select id="e_v" onchange="syncEditAct()">'+vOpts+'</select></div>'+
+    '<div class="col"><label class="fld">Activity</label><select id="e_a">'+aOpts+'</select></div></div>'+
+    '<div class="row" style="margin-top:10px"><div class="col" style="max-width:150px"><label class="fld">Date</label><input type="date" id="e_d" value="'+e.date+'"></div>'+
+    '<div class="col" style="max-width:110px"><label class="fld">Hours</label><input type="number" step="0.25" id="e_h" value="'+(e.minutes/60)+'"></div>'+
+    '<div class="col"><label class="fld">Type</label><select id="e_t">'+tOpts+'</select></div></div>'+
+    '<div class="row" style="margin-top:10px"><div class="col" style="max-width:150px"><label class="fld">Billable</label><select id="e_b"><option value="no" '+(!e.billable?'selected':'')+'>Non-billable</option><option value="yes" '+(e.billable?'selected':'')+'>Billable</option></select></div>'+
+    '<div class="col" style="max-width:120px"><label class="fld">Rate &pound;/hr</label><input type="number" id="e_r" value="'+(e.rate||0)+'"></div>'+
+    '<div class="col"><label class="fld">Note</label><input type="text" id="e_n" value="'+esc(e.note||'')+'"></div></div>',
+    [{t:'Delete',c:'danger',f:()=>{state.entries=state.entries.filter(x=>x.id!==id);save();closeModal();toast('Deleted');refreshAll();}},
+     {t:'Save',c:'primary',f:()=>{
+        e.ventureId=val('e_v');e.activityId=val('e_a');e.date=val('e_d');e.minutes=Math.round(parseFloat(val('e_h'))*60)||0;
+        e.tagId=val('e_t')||null;e.billable=val('e_b')==='yes';e.rate=parseFloat(val('e_r'))||0;e.note=val('e_n').trim();
+        save();closeModal();toast('Saved');refreshAll();}}]);
+}
+function syncEditAct(){const v=val('e_v');document.getElementById('e_a').innerHTML=state.activities.filter(a=>a.ventureId===v).map(a=>'<option value="'+a.id+'">'+esc(a.name)+'</option>').join('');}
+
+/* ============================ MANAGE VENTURES/ACTIVITIES ============================ */
+function openVenture(id){
+  const v=id?state.ventures.find(x=>x.id===id):{name:'',color:'#6C5CE7'};
+  modal(id?'Edit venture':'New venture',
+    '<label class="fld">Name</label><input id="v_name" value="'+esc(v.name)+'" placeholder="Venture name">'+
+    '<label class="fld" style="margin-top:12px">Colour</label><input type="color" id="v_color" value="'+v.color+'" style="height:42px;padding:4px">',
+    [id?{t:'Delete',c:'danger',f:()=>{if(confirm('Delete venture and all its activities? Entries are kept but unlinked.')){state.ventures=state.ventures.filter(x=>x.id!==id);state.activities=state.activities.filter(a=>a.ventureId!==id);save();closeModal();refreshAll();}}}:null,
+     {t:'Save',c:'primary',f:()=>{const n=val('v_name').trim();if(!n){toast('Name needed');return;}if(id){v.name=n;v.color=val('v_color');}else{state.ventures.push({id:uid(),name:n,color:val('v_color'),archived:false});}save();closeModal();refreshAll();}}].filter(Boolean));
+}
+function openActivity(ventureId,id){
+  const a=id?state.activities.find(x=>x.id===id):{name:'',defaultBillable:false,defaultRate:0};
+  modal(id?'Edit activity':'New activity',
+    '<label class="fld">Name</label><input id="a_name" value="'+esc(a.name)+'" placeholder="e.g. Marketing, Sales, Client X">'+
+    '<div class="row" style="margin-top:12px"><div class="col"><label class="fld">Default billable</label><select id="a_bill"><option value="no" '+(!a.defaultBillable?'selected':'')+'>No</option><option value="yes" '+(a.defaultBillable?'selected':'')+'>Yes</option></select></div>'+
+    '<div class="col"><label class="fld">Default rate &pound;/hr</label><input type="number" id="a_rate" value="'+(a.defaultRate||0)+'"></div></div>',
+    [id?{t:'Delete',c:'danger',f:()=>{if(confirm('Delete activity?')){state.activities=state.activities.filter(x=>x.id!==id);save();closeModal();refreshAll();}}}:null,
+     {t:'Save',c:'primary',f:()=>{const n=val('a_name').trim();if(!n){toast('Name needed');return;}if(id){a.name=n;a.defaultBillable=val('a_bill')==='yes';a.defaultRate=parseFloat(val('a_rate'))||0;}else{state.activities.push({id:uid(),ventureId,name:n,defaultBillable:val('a_bill')==='yes',defaultRate:parseFloat(val('a_rate'))||0,archived:false});}save();closeModal();refreshAll();}}].filter(Boolean));
+}
+function addTag(){modal('New activity type','<label class="fld">Name</label><input id="tg_name" placeholder="e.g. Research">',[{t:'Add',c:'primary',f:()=>{const n=val('tg_name').trim();if(!n)return;state.tags.push({id:uid(),name:n});save();closeModal();refreshAll();}}]);}
+function renderManage(){
+  const wrap=document.getElementById('manageWrap');
+  if(!state.ventures.length){wrap.innerHTML='<div class="empty">No ventures yet. Add one to begin.</div>';}
+  else wrap.innerHTML=state.ventures.map(v=>{
+    const acts=state.activities.filter(a=>a.ventureId===v.id);
+    const active=acts.filter(a=>!a.archived), arch=acts.filter(a=>a.archived);
+    const row=(a,isArch)=>'<div class="act-row'+(isArch?' arch':'')+'"><span class="grow">'+esc(a.name)+'</span>'+
+      (a.defaultBillable?'<span class="pill-bill">Billable &pound;'+a.defaultRate+'</span>':'<span class="muted" style="font-size:12px">non-billable</span>')+
+      ' <button class="btn ghost sm" onclick="toggleArchiveActivity(\''+a.id+'\')">'+(isArch?'Unarchive':'Archive')+'</button>'+
+      ' <button class="btn ghost sm" onclick="openActivity(\''+v.id+'\',\''+a.id+'\')">Edit</button></div>';
+    return '<div class="manage-card"><div class="manage-head"><div class="name"><span class="vdot" style="background:'+v.color+'"></span>'+esc(v.name)+'</div>'+
+      '<div><button class="btn ghost sm" onclick="openActivity(\''+v.id+'\')">+ Activity</button> <button class="btn ghost sm" onclick="openVenture(\''+v.id+'\')">Edit</button></div></div>'+
+      (active.length?active.map(a=>row(a,false)).join(''):'<div class="muted" style="font-size:12.5px;padding:4px 0">No active activities.</div>')+
+      (arch.length?'<div class="arch-head" onclick="this.nextElementSibling.classList.toggle(\'hide\')">Archived ('+arch.length+') &#9662;</div><div class="hide">'+arch.map(a=>row(a,true)).join('')+'</div>':'')+
+      '</div>';
+  }).join('');
+  document.getElementById('tagWrap').innerHTML=state.tags.map(t=>'<span class="tag" style="margin:0 6px 6px 0;display:inline-flex;align-items:center;gap:6px">'+esc(t.name)+' <span style="cursor:pointer;color:#c0392b" onclick="delTag(\''+t.id+'\')">&times;</span></span>').join('')||'<span class="muted">No types.</span>';
+}
+function delTag(id){state.tags=state.tags.filter(t=>t.id!==id);save();refreshAll();}
+function toggleArchiveActivity(id){const a=state.activities.find(x=>x.id===id);if(!a)return;a.archived=!a.archived;save();refreshAll();toast(a.archived?'Activity archived':'Activity unarchived');}
+
+/* ============================ DROPDOWNS ============================ */
+function fillVentures(prefix){
+  const sel=document.getElementById(prefix+'_venture');const cur=sel.value;
+  sel.innerHTML='<option value="">Select&hellip;</option>'+state.ventures.map(v=>'<option value="'+v.id+'">'+esc(v.name)+'</option>').join('');
+  if(cur)sel.value=cur;fillActivities(prefix);
+}
+function fillActivities(prefix){
+  const v=document.getElementById(prefix+'_venture').value;const sel=document.getElementById(prefix+'_activity');const cur=sel.value;
+  sel.innerHTML='<option value="">Select&hellip;</option>'+state.activities.filter(a=>a.ventureId===v&&!a.archived).map(a=>'<option value="'+a.id+'">'+esc(a.name)+'</option>').join('');
+  if(cur)sel.value=cur;
+}
+function fillTags(prefix){const sel=document.getElementById(prefix+'_tag');const cur=sel.value;sel.innerHTML='<option value="">No type</option>'+state.tags.map(t=>'<option value="'+t.id+'">'+esc(t.name)+'</option>').join('');if(cur)sel.value=cur;}
+
+/* ============================ RECENT ============================ */
+function renderRecent(){
+  const f=document.getElementById('recentFilter');const fv=f.value;
+  f.innerHTML='<option value="">All ventures</option>'+state.ventures.map(v=>'<option value="'+v.id+'">'+esc(v.name)+'</option>').join('');
+  if(fv)f.value=fv;
+  let rows=[...state.entries].sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
+  if(fv)rows=rows.filter(e=>e.ventureId===fv);
+  rows=rows.slice(0,40);
+  const wrap=document.getElementById('recentWrap');
+  if(!rows.length){wrap.innerHTML='<div class="empty">No entries yet. Start the timer or add one manually.</div>';return;}
+  wrap.innerHTML='<table><thead><tr><th>Date</th><th>Venture</th><th>Activity</th><th>Type</th><th>Hours</th><th>Value</th><th>Note</th></tr></thead><tbody>'+
+    rows.map(e=>{const v=state.ventures.find(x=>x.id===e.ventureId),a=state.activities.find(x=>x.id===e.activityId),t=state.tags.find(x=>x.id===e.tagId);
+      const val=e.billable?'<span class="pill-bill">&pound;'+(Math.round(e.minutes/60*(e.rate||0)))+'</span>':'<span class="muted">&mdash;</span>';
+      return '<tr style="cursor:pointer" onclick="editEntry(\''+e.id+'\')"><td>'+fmtDate(e.date)+'</td>'+
+        '<td><span class="vdot" style="background:'+(v?v.color:'#ccc')+'"></span> '+esc(v?v.name:'?')+'</td>'+
+        '<td>'+esc(a?a.name:'?')+'</td><td>'+(t?'<span class="tag">'+esc(t.name)+'</span>':'')+'</td>'+
+        '<td>'+(e.minutes/60).toFixed(2)+'h</td><td>'+val+'</td><td class="muted">'+esc(e.note||'')+'</td></tr>';
+    }).join('')+'</tbody></table>';
+}
+
+/* ============================ ANALYTICS ============================ */
+let curRange=30;
+function renderAnalytics(){
+  // venture filter
+  const af=document.getElementById('a_venture');const cur=af.value;
+  af.innerHTML='<option value="">All ventures</option>'+state.ventures.map(v=>'<option value="'+v.id+'">'+esc(v.name)+'</option>').join('');
+  if(cur)af.value=cur;
+  const vFilter=af.value;
+  // activity sub-filter (depends on selected venture)
+  const actSel=document.getElementById('a_activity');const curA=actSel.value;
+  if(vFilter){
+    actSel.disabled=false;
+    actSel.innerHTML='<option value="">All activities</option>'+state.activities.filter(a=>a.ventureId===vFilter).map(a=>'<option value="'+a.id+'">'+esc(a.name)+(a.archived?' (archived)':'')+'</option>').join('');
+    actSel.value=(curA&&state.activities.some(a=>a.id===curA&&a.ventureId===vFilter))?curA:'';
+  }else{
+    actSel.disabled=true;actSel.innerHTML='<option value="">All activities</option>';actSel.value='';
+  }
+  const aFilter=actSel.value;
+  // date range (string bounds YYYY-MM-DD; presets have no upper bound)
+  document.getElementById('customDates').classList.toggle('hide',curRange!=='custom');
+  let fromStr=null,toStr=null,rangeTxt='';
+  if(curRange==='custom'){
+    fromStr=document.getElementById('customFrom').value||null;
+    toStr=document.getElementById('customTo').value||fromStr;   // single day if end left blank
+    if(fromStr&&toStr&&toStr<fromStr){const t=fromStr;fromStr=toStr;toStr=t;}
+    rangeTxt=fromStr?((toStr&&toStr!==fromStr)?(fromStr+' → '+toStr):fromStr):'Pick a start date';
+  }else if(curRange==='all'){
+    rangeTxt='All time';
+  }else{
+    const f=new Date();f.setDate(f.getDate()-parseInt(curRange));fromStr=f.toISOString().slice(0,10);
+    rangeTxt='Since '+fromStr;
+  }
+  document.getElementById('rangeLabel').textContent=rangeTxt;
+  let ents=state.entries.filter(e=>(!fromStr||e.date>=fromStr)&&(!toStr||e.date<=toStr)&&(!vFilter||e.ventureId===vFilter)&&(!aFilter||e.activityId===aFilter));
+  const totMin=ents.reduce((s,e)=>s+e.minutes,0);
+  const value=ents.filter(e=>e.billable).reduce((s,e)=>s+e.minutes/60*(e.rate||0),0);
+  let days;
+  if(curRange==='all') days=Math.max(1,daySpan(ents));
+  else if(curRange==='custom') days=(fromStr&&toStr)?Math.max(1,Math.round((new Date(toStr)-new Date(fromStr))/86400000)+1):Math.max(1,daySpan(ents));
+  else days=parseInt(curRange);
+  document.getElementById('k_hours').textContent=(totMin/60).toFixed(1)+'h';
+  document.getElementById('k_value').innerHTML='&pound;'+Math.round(value).toLocaleString();
+  document.getElementById('k_sessions').textContent=ents.length;
+  document.getElementById('k_avg').textContent=(totMin/60/days).toFixed(1)+'h';
+  document.getElementById('k_avg_d').textContent='over '+days+' days';
+  document.getElementById('k_sessions_d').textContent=ents.length?((totMin/ents.length/60).toFixed(1)+'h avg'):'';
+  const billMin=ents.filter(e=>e.billable).reduce((s,e)=>s+e.minutes,0);
+  document.getElementById('k_hours_d').innerHTML=totMin?('<span style="color:var(--good)">'+Math.round(billMin/totMin*100)+'% billable</span>'):'';
+
+  // by venture
+  const byV={};ents.forEach(e=>byV[e.ventureId]=(byV[e.ventureId]||0)+e.minutes);
+  const vIds=Object.keys(byV).sort((a,b)=>byV[b]-byV[a]);
+  drawDoughnut('chVenture',vIds.map(id=>name(id,'v')),vIds.map(id=>+(byV[id]/60).toFixed(2)),vIds.map(id=>color(id)));
+  // by tag
+  const byT={};ents.forEach(e=>{const k=e.tagId||'none';byT[k]=(byT[k]||0)+e.minutes;});
+  const tIds=Object.keys(byT).sort((a,b)=>byT[b]-byT[a]);
+  drawDoughnut('chTag',tIds.map(id=>id==='none'?'Untyped':name(id,'t')),tIds.map(id=>+(byT[id]/60).toFixed(2)),tIds.map((id,i)=>palette(i)));
+  // over time (daily buckets for short spans, weekly for long)
+  const buckets=timeBuckets(ents,days>45);
+  drawBar('chTime',buckets.labels,buckets.data,'#6C5CE7',true);
+  // value by venture
+  const valV={};ents.filter(e=>e.billable).forEach(e=>valV[e.ventureId]=(valV[e.ventureId]||0)+e.minutes/60*(e.rate||0));
+  const valIds=Object.keys(valV).sort((a,b)=>valV[b]-valV[a]);
+  drawBar('chValue',valIds.map(id=>name(id,'v')),valIds.map(id=>Math.round(valV[id])),valIds.map(id=>color(id)),false);
+  // top activities
+  const byA={};ents.forEach(e=>byA[e.activityId]=(byA[e.activityId]||0)+e.minutes);
+  const aIds=Object.keys(byA).sort((a,b)=>byA[b]-byA[a]).slice(0,12);
+  drawBarH('chActivity',aIds.map(id=>actName(id)),aIds.map(id=>+(byA[id]/60).toFixed(2)),aIds.map(id=>{const a=state.activities.find(x=>x.id===id);return a?color(a.ventureId):'#999';}));
+  // billable value by activity
+  const valA={};ents.filter(e=>e.billable).forEach(e=>valA[e.activityId]=(valA[e.activityId]||0)+e.minutes/60*(e.rate||0));
+  const valAIds=Object.keys(valA).sort((a,b)=>valA[b]-valA[a]).slice(0,12);
+  drawBarH('chValueAct',valAIds.map(id=>actName(id)),valAIds.map(id=>Math.round(valA[id])),valAIds.map(id=>{const a=state.activities.find(x=>x.id===id);return a?color(a.ventureId):'#999';}));
+}
+function timeBuckets(ents,useWeek){
+  const map={};
+  ents.forEach(e=>{let key;const d=new Date(e.date);
+    if(useWeek){const wd=new Date(d);wd.setDate(d.getDate()-((d.getDay()+6)%7));key=wd.toISOString().slice(5,10);}
+    else key=e.date.slice(5);
+    map[key]=(map[key]||0)+e.minutes;});
+  const labels=Object.keys(map).sort();return {labels,data:labels.map(k=>+(map[k]/60).toFixed(2))};
+}
+function daySpan(ents){if(!ents.length)return 1;const ds=ents.map(e=>new Date(e.date).getTime());return Math.ceil((Math.max(...ds)-Math.min(...ds))/86400000)+1;}
+function name(id,t){const a=t==='v'?state.ventures.find(x=>x.id===id):state.tags.find(x=>x.id===id);return a?a.name:'?';}
+function actName(id){const a=state.activities.find(x=>x.id===id);if(!a)return'?';const v=state.ventures.find(x=>x.id===a.ventureId);return (v?v.name.slice(0,4)+' · ':'')+a.name;}
+function color(vid){const v=state.ventures.find(x=>x.id===vid);return v?v.color:'#999';}
+const PALETTE=['#6C5CE7','#2D9CDB','#F2994A','#27AE60','#EB5757','#9B51E0','#56CCF2','#F2C94C','#219653','#BB6BD9'];
+function palette(i){return PALETTE[i%PALETTE.length];}
+
+function drawDoughnut(id,labels,data,colors){
+  if(charts[id])charts[id].destroy();
+  if(!data.length){blank(id);return;}
+  charts[id]=new Chart(document.getElementById(id),{type:'doughnut',data:{labels,datasets:[{data,backgroundColor:colors,borderWidth:2,borderColor:'#fff'}]},
+    options:{plugins:{legend:{position:'right',labels:{boxWidth:10,font:{size:11},padding:8}}},cutout:'62%'}});
+}
+function drawBar(id,labels,data,c,fill){
+  if(charts[id])charts[id].destroy();
+  if(!data.length){blank(id);return;}
+  charts[id]=new Chart(document.getElementById(id),{type:'bar',data:{labels,datasets:[{data,backgroundColor:Array.isArray(c)?c:c,borderRadius:6,maxBarThickness:46}]},
+    options:{plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{font:{size:11}}},x:{ticks:{font:{size:10}}}}}});
+}
+function drawBarH(id,labels,data,colors){
+  if(charts[id])charts[id].destroy();
+  if(!data.length){blank(id);return;}
+  charts[id]=new Chart(document.getElementById(id),{type:'bar',data:{labels,datasets:[{data,backgroundColor:colors,borderRadius:5}]},
+    options:{indexAxis:'y',plugins:{legend:{display:false}},scales:{x:{beginAtZero:true,ticks:{font:{size:11}}},y:{ticks:{font:{size:11}}}}}});
+}
+function blank(id){const c=document.getElementById(id);const ctx=c.getContext('2d');ctx.clearRect(0,0,c.width,c.height);ctx.fillStyle='#9aa0ab';ctx.font='13px sans-serif';ctx.textAlign='center';ctx.fillText('No data in this range',c.width/2,c.height/2);}
+
+/* ============================ EXPORT ============================ */
+function exportJSON(){dl(JSON.stringify(state,null,2),'time-data.json','application/json');}
+function exportCSV(){
+  const head=['Date','Venture','Activity','Type','Hours','Billable','Rate','Value','Note'];
+  const lines=[head.join(',')];
+  [...state.entries].sort((a,b)=>a.date<b.date?-1:1).forEach(e=>{
+    const v=state.ventures.find(x=>x.id===e.ventureId),a=state.activities.find(x=>x.id===e.activityId),t=state.tags.find(x=>x.id===e.tagId);
+    const val=e.billable?(e.minutes/60*(e.rate||0)).toFixed(2):'';
+    lines.push([e.date,q(v?v.name:''),q(a?a.name:''),q(t?t.name:''),(e.minutes/60).toFixed(2),e.billable?'Yes':'No',e.rate||0,val,q(e.note||'')].join(','));
+  });
+  dl(lines.join('\n'),'time-entries.csv','text/csv');
+}
+function q(s){return '"'+String(s).replace(/"/g,'""')+'"';}
+function dl(content,name,type){const b=new Blob([content],{type});const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download=name;a.click();URL.revokeObjectURL(u);}
+function importJSON(ev){const f=ev.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!d.ventures||!d.entries)throw 0;if(confirm('Replace all current data with this file?')){state=d;save();refreshAll();toast('Imported');}}catch(e){toast('Invalid file');}};r.readAsText(f);}
+
+/* ============================ HELPERS / UI ============================ */
+function esc(s){return String(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function val(id){return document.getElementById(id).value;}
+function fmtDate(d){const x=new Date(d);return x.toLocaleDateString('en-GB',{day:'2-digit',month:'short'});}
+function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),1900);}
+function modal(title,body,actions){
+  document.getElementById('modalBody').innerHTML='<h3>'+title+'</h3>'+body+'<div class="actions" id="modalActions"></div>';
+  const wrap=document.getElementById('modalActions');
+  const cancel=document.createElement('button');cancel.className='btn ghost';cancel.textContent='Cancel';cancel.onclick=closeModal;wrap.appendChild(cancel);
+  (actions||[]).forEach(a=>{const b=document.createElement('button');b.className='btn '+(a.c||'ghost');b.textContent=a.t;b.onclick=a.f;wrap.appendChild(b);});
+  document.getElementById('modalBg').classList.add('show');
+}
+function closeModal(){document.getElementById('modalBg').classList.remove('show');}
+document.getElementById('modalBg').addEventListener('click',e=>{if(e.target.id==='modalBg')closeModal();});
+
+function refreshAll(){
+  ['t','m'].forEach(p=>{fillVentures(p);fillTags(p);});
+  renderRunning();renderRecent();renderManage();
+  if(!document.getElementById('tab-analytics').classList.contains('hide'))renderAnalytics();
+}
+
+/* tabs */
+document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('.tabs button').forEach(x=>x.classList.remove('active'));b.classList.add('active');
+  ['track','analytics','manage','data'].forEach(t=>document.getElementById('tab-'+t).classList.toggle('hide',t!==b.dataset.tab));
+  if(b.dataset.tab==='analytics')renderAnalytics();
+});
+document.querySelectorAll('#rangeSeg button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#rangeSeg button').forEach(x=>x.classList.remove('active'));b.classList.add('active');curRange=b.dataset.r;renderAnalytics();});
+function clearCustom(){document.getElementById('customFrom').value='';document.getElementById('customTo').value='';renderAnalytics();}
+document.getElementById('t_venture').addEventListener('change',()=>fillActivities('t'));
+document.getElementById('m_venture').addEventListener('change',()=>fillActivities('m'));
+
+boot();
+</script>
+</body>
+</html>
