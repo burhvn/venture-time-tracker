@@ -312,7 +312,8 @@ async function boot(){
   let init=saved;
   // when NOT connected to a local file, try loading a time-data.json served next to this file
   if(!fileHandle){
-    try{const r=await fetch('time-data.json',{cache:'no-store'});if(r.ok){const d=await r.json();if(d&&d.ventures&&d.entries)init=d;}}catch(e){}
+    let base=location.pathname.replace(/index\.html?$/i,''); if(!base.endsWith('/')) base+='/';
+    try{const r=await fetch(base+'time-data.json',{cache:'no-store'});if(r.ok){const d=await r.json();if(d&&d.ventures&&d.entries)init=d;}}catch(e){}
   }
   state = init || seed();
   if(!saved) await save();
