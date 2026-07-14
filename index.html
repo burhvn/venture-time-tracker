@@ -102,7 +102,9 @@
   .seg button.active{background:#fff;color:var(--ink);box-shadow:var(--shadow)}
   .hide{display:none!important}
   .banner{background:#fff7ed;border:1px solid #fde4c8;color:#9a5b1a;padding:10px 14px;border-radius:10px;font-size:12.5px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
-  @media(max-width:760px){.kpis{grid-template-columns:repeat(2,1fr)}.chart-grid{grid-template-columns:1fr}}
+  .tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;max-width:100%}
+  .tbl-wrap table{min-width:520px}
+  @media(max-width:760px){.kpis{grid-template-columns:repeat(2,1fr)}.chart-grid{grid-template-columns:1fr}.wrap{padding:16px 12px 80px}table{font-size:12.5px}.run-top{flex-wrap:wrap}.run-card .left{min-width:0}.act-row{flex-wrap:wrap}.tabs button{padding:8px 13px}.panel{padding:14px}}
 </style>
 </head>
 <body>
@@ -280,6 +282,7 @@
 /* ============================ STATE & STORAGE ============================ */
 const DB_NAME='vtt_db', STORE='kv';
 let db, fileHandle=null, state=null, runningTimers=[], tickHandle=null;
+let serverMode=false, apiBase='', lastSeenSavedAt=0, pollHandle=null, pushTimer=null, dirty=false;
 const charts={};
 
 function idb(){return new Promise((res,rej)=>{const r=indexedDB.open(DB_NAME,1);r.onupgradeneeded=()=>r.result.createObjectStore(STORE);r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);});}
@@ -309,38 +312,69 @@ async function boot(){
   // restore file handle
   try{const h=await kvGet('fileHandle');if(h){fileHandle=h;}}catch(e){}
   const saved=await kvGet('state');
+  // 1) write-enabled server mode (multi-device tracking): detect the /api/data endpoint
+  apiBase = location.pathname.replace(/index\.html?$/i,''); if(!apiBase.endsWith('/')) apiBase+='/';
+  if(!fileHandle){
+    try{const r=await fetch(apiBase+'api/data',{cache:'no-store'});
+      if(r.ok){const d=await r.json();
+        if(d&&d.state&&d.state.ventures){serverMode=true;state=d.state;lastSeenSavedAt=d.savedAt||0;runningTimers=normTimers(d.timers||[]);}}
+    }catch(e){}
+  }
   let init=saved;
   // when NOT connected to a local file, try loading a time-data.json served next to this file
-  if(!fileHandle){
+  if(!serverMode && !fileHandle){
     let base=location.pathname.replace(/index\.html?$/i,''); if(!base.endsWith('/')) base+='/';
     try{const r=await fetch(base+'time-data.json',{cache:'no-store'});if(r.ok){const d=await r.json();if(d&&d.ventures&&d.entries)init=d;}}catch(e){}
   }
-  state = init || seed();
-  if(!saved) await save();
+  if(!serverMode) state = init || seed();
+  if(!serverMode && !saved) await save();
   // restore running timers (migrate old {start} shape -> {accMs,runningSince})
-  const tsaved=await kvGet('timers');
-  runningTimers=(Array.isArray(tsaved)?tsaved:[]).map(t=>{
-    const n=t.accMs===undefined
-      ? {id:t.id,ventureId:t.ventureId,activityId:t.activityId,tagId:t.tagId,accMs:0,runningSince:t.start||Date.now()}
-      : t;
-    n.note=n.note||''; return n;
-  });
+  if(!serverMode){
+    const tsaved=await kvGet('timers');
+    runningTimers=normTimers(Array.isArray(tsaved)?tsaved:[]);
+  }
   if(runningTimers.some(t=>t.runningSince)) startTick();
+  if(serverMode && !pollHandle) pollHandle=setInterval(pollServer,5000);
   // try silent file access
   if(fileHandle){
     try{const p=await fileHandle.queryPermission({mode:'readwrite'});if(p==='granted'){setFileStat(true);}else setFileStat(false,true);}catch(e){setFileStat(false);}
   }
-  document.getElementById('fileBanner').classList.toggle('hide', !!fileHandle);
+  document.getElementById('fileBanner').classList.toggle('hide', !!fileHandle||serverMode);
+  if(serverMode){const el=document.getElementById('fstat'),t=document.getElementById('fstatTxt');el.classList.add('on');t.textContent='Synced to server';el.style.cursor='default';el.onclick=null;}
   document.getElementById('m_date').value=todayStr();
   refreshAll();
 }
 
+function normTimers(arr){return (Array.isArray(arr)?arr:[]).map(t=>{const n=t.accMs===undefined?{id:t.id,ventureId:t.ventureId,activityId:t.activityId,tagId:t.tagId,accMs:0,runningSince:t.start||Date.now()}:t;n.note=n.note||'';return n;});}
+function pushToServer(){
+  if(!serverMode) return;
+  dirty=true;
+  clearTimeout(pushTimer);
+  pushTimer=setTimeout(()=>{
+    fetch(apiBase+'api/data',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({state,timers:runningTimers})})
+      .then(r=>r.ok?r.json():null).then(d=>{if(d&&d.savedAt)lastSeenSavedAt=d.savedAt;dirty=false;}).catch(()=>{dirty=false;});
+  },600);
+}
+async function pollServer(){
+  if(!serverMode||dirty) return;
+  if(document.getElementById('modalBg').classList.contains('show')) return;
+  if(document.activeElement&&/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
+  try{const r=await fetch(apiBase+'api/data',{cache:'no-store'});if(!r.ok)return;const d=await r.json();
+    if(d&&d.savedAt&&d.savedAt>lastSeenSavedAt){
+      lastSeenSavedAt=d.savedAt;
+      if(d.state&&d.state.ventures) state=d.state;
+      runningTimers=normTimers(d.timers||[]);
+      if(runningTimers.some(t=>t.runningSince)) startTick(); else stopTick();
+      refreshAll();
+    }}catch(e){}
+}
 async function save(){
   state.updated=Date.now();
   await kvSet('state',state);
   if(fileHandle){
     try{const p=await fileHandle.queryPermission({mode:'readwrite'});if(p==='granted'){await writeFile();}}catch(e){}
   }
+  pushToServer();
 }
 
 /* ============================ FILE SYSTEM ACCESS ============================ */
@@ -383,22 +417,22 @@ function startTimer(){
   const v=document.getElementById('t_venture').value, a=document.getElementById('t_activity').value, tg=document.getElementById('t_tag').value;
   if(!v||!a){toast('Pick a venture and activity first');return;}
   runningTimers.push({id:uid(),ventureId:v,activityId:a,tagId:tg||null,accMs:0,runningSince:Date.now(),note:''});
-  kvSet('timers',runningTimers);
+  kvSet('timers',runningTimers);pushToServer();
   startTick();renderRunning();
   toast('Timer started');
 }
-function setTimerNote(id,val){const t=runningTimers.find(x=>x.id===id);if(!t)return;t.note=val;kvSet('timers',runningTimers);}
+function setTimerNote(id,val){const t=runningTimers.find(x=>x.id===id);if(!t)return;t.note=val;kvSet('timers',runningTimers);pushToServer();}
 function pauseTimer(id){
   const t=runningTimers.find(x=>x.id===id);if(!t||!t.runningSince)return;
   t.accMs+=Date.now()-t.runningSince;t.runningSince=null;
-  kvSet('timers',runningTimers);
+  kvSet('timers',runningTimers);pushToServer();
   if(!runningTimers.some(x=>x.runningSince)) stopTick();
   renderRunning();
 }
 function resumeTimer(id){
   const t=runningTimers.find(x=>x.id===id);if(!t||t.runningSince)return;
   t.runningSince=Date.now();
-  kvSet('timers',runningTimers);
+  kvSet('timers',runningTimers);pushToServer();
   startTick();renderRunning();
 }
 function stopTimer(id){
@@ -411,7 +445,7 @@ function stopTimer(id){
     toast('Session saved');
   }else toast('Too short to save');
   runningTimers=runningTimers.filter(x=>x.id!==id);
-  kvSet('timers',runningTimers);
+  kvSet('timers',runningTimers);pushToServer();
   if(!runningTimers.some(x=>x.runningSince)) stopTick();
   save();refreshAll();
 }
@@ -549,14 +583,14 @@ function renderRecent(){
   rows=rows.slice(0,40);
   const wrap=document.getElementById('recentWrap');
   if(!rows.length){wrap.innerHTML='<div class="empty">No entries yet. Start the timer or add one manually.</div>';return;}
-  wrap.innerHTML='<table><thead><tr><th>Date</th><th>Venture</th><th>Activity</th><th>Type</th><th>Hours</th><th>Value</th><th>Note</th></tr></thead><tbody>'+
+  wrap.innerHTML='<div class="tbl-wrap"><table><thead><tr><th>Date</th><th>Venture</th><th>Activity</th><th>Type</th><th>Hours</th><th>Value</th><th>Note</th></tr></thead><tbody>'+
     rows.map(e=>{const v=state.ventures.find(x=>x.id===e.ventureId),a=state.activities.find(x=>x.id===e.activityId),t=state.tags.find(x=>x.id===e.tagId);
       const val=e.billable?'<span class="pill-bill">&pound;'+(Math.round(e.minutes/60*(e.rate||0)))+'</span>':'<span class="muted">&mdash;</span>';
       return '<tr style="cursor:pointer" onclick="editEntry(\''+e.id+'\')"><td>'+fmtDate(e.date)+'</td>'+
         '<td><span class="vdot" style="background:'+(v?v.color:'#ccc')+'"></span> '+esc(v?v.name:'?')+'</td>'+
         '<td>'+esc(a?a.name:'?')+'</td><td>'+(t?'<span class="tag">'+esc(t.name)+'</span>':'')+'</td>'+
         '<td>'+(e.minutes/60).toFixed(2)+'h</td><td>'+val+'</td><td class="muted">'+esc(e.note||'')+'</td></tr>';
-    }).join('')+'</tbody></table>';
+    }).join('')+'</tbody></table></div>';
 }
 
 /* ============================ ANALYTICS ============================ */
