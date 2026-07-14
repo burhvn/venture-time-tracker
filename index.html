@@ -205,6 +205,7 @@
       <div class="kpi"><div class="v" id="k_avg">0h</div><div class="l">Avg / day</div><div class="d muted" id="k_avg_d"></div></div>
     </div>
 
+    <p class="sub" style="margin:0 2px 12px">Tip: click any slice or bar to see every session behind it.</p>
     <div class="chart-grid">
       <div class="chart-box"><h3>Hours by venture</h3><canvas id="chVenture"></canvas></div>
       <div class="chart-box"><h3>Hours by activity type</h3><canvas id="chTag"></canvas></div>
@@ -215,6 +216,8 @@
       <div class="chart-box"><h3>Top activities (hours)</h3><canvas id="chActivity" style="max-height:300px"></canvas></div>
       <div class="chart-box"><h3>Billable value by activity (&pound;)</h3><canvas id="chValueAct" style="max-height:300px"></canvas></div>
     </div>
+
+    <div id="drillPanel" class="panel hide" style="margin-top:16px"></div>
   </section>
 
   <!-- ============ MANAGE ============ -->
@@ -306,7 +309,12 @@ async function boot(){
   // restore file handle
   try{const h=await kvGet('fileHandle');if(h){fileHandle=h;}}catch(e){}
   const saved=await kvGet('state');
-  state = saved || seed();
+  let init=saved;
+  // when NOT connected to a local file, try loading a time-data.json served next to this file
+  if(!fileHandle){
+    try{const r=await fetch('time-data.json',{cache:'no-store'});if(r.ok){const d=await r.json();if(d&&d.ventures&&d.entries)init=d;}}catch(e){}
+  }
+  state = init || seed();
   if(!saved) await save();
   // restore running timers (migrate old {start} shape -> {accMs,runningSince})
   const tsaved=await kvGet('timers');
@@ -551,8 +559,9 @@ function renderRecent(){
 }
 
 /* ============================ ANALYTICS ============================ */
-let curRange=30;
+let curRange=30, curEnts=[];
 function renderAnalytics(){
+  {const dp=document.getElementById('drillPanel');if(dp)dp.classList.add('hide');}
   // venture filter
   const af=document.getElementById('a_venture');const cur=af.value;
   af.innerHTML='<option value="">All ventures</option>'+state.ventures.map(v=>'<option value="'+v.id+'">'+esc(v.name)+'</option>').join('');
@@ -584,6 +593,7 @@ function renderAnalytics(){
   }
   document.getElementById('rangeLabel').textContent=rangeTxt;
   let ents=state.entries.filter(e=>(!fromStr||e.date>=fromStr)&&(!toStr||e.date<=toStr)&&(!vFilter||e.ventureId===vFilter)&&(!aFilter||e.activityId===aFilter));
+  curEnts=ents;
   const totMin=ents.reduce((s,e)=>s+e.minutes,0);
   const value=ents.filter(e=>e.billable).reduce((s,e)=>s+e.minutes/60*(e.rate||0),0);
   let days;
@@ -602,33 +612,38 @@ function renderAnalytics(){
   // by venture
   const byV={};ents.forEach(e=>byV[e.ventureId]=(byV[e.ventureId]||0)+e.minutes);
   const vIds=Object.keys(byV).sort((a,b)=>byV[b]-byV[a]);
-  drawDoughnut('chVenture',vIds.map(id=>name(id,'v')),vIds.map(id=>+(byV[id]/60).toFixed(2)),vIds.map(id=>color(id)));
+  drawDoughnut('chVenture',vIds.map(id=>name(id,'v')),vIds.map(id=>+(byV[id]/60).toFixed(2)),vIds.map(id=>color(id)),
+    i=>drill('Hours · '+name(vIds[i],'v'),e=>e.ventureId===vIds[i]));
   // by tag
   const byT={};ents.forEach(e=>{const k=e.tagId||'none';byT[k]=(byT[k]||0)+e.minutes;});
   const tIds=Object.keys(byT).sort((a,b)=>byT[b]-byT[a]);
-  drawDoughnut('chTag',tIds.map(id=>id==='none'?'Untyped':name(id,'t')),tIds.map(id=>+(byT[id]/60).toFixed(2)),tIds.map((id,i)=>palette(i)));
+  drawDoughnut('chTag',tIds.map(id=>id==='none'?'Untyped':name(id,'t')),tIds.map(id=>+(byT[id]/60).toFixed(2)),tIds.map((id,i)=>palette(i)),
+    i=>drill('Type · '+(tIds[i]==='none'?'Untyped':name(tIds[i],'t')),e=>(e.tagId||'none')===tIds[i]));
   // over time (daily buckets for short spans, weekly for long)
-  const buckets=timeBuckets(ents,days>45);
-  drawBar('chTime',buckets.labels,buckets.data,'#6C5CE7',true);
+  const useWeek=days>45;
+  const buckets=timeBuckets(ents,useWeek);
+  drawBar('chTime',buckets.labels,buckets.data,'#6C5CE7',true,
+    i=>drill('Sessions · '+buckets.labels[i],e=>bucketKey(e,useWeek)===buckets.labels[i]));
   // value by venture
   const valV={};ents.filter(e=>e.billable).forEach(e=>valV[e.ventureId]=(valV[e.ventureId]||0)+e.minutes/60*(e.rate||0));
   const valIds=Object.keys(valV).sort((a,b)=>valV[b]-valV[a]);
-  drawBar('chValue',valIds.map(id=>name(id,'v')),valIds.map(id=>Math.round(valV[id])),valIds.map(id=>color(id)),false);
+  drawBar('chValue',valIds.map(id=>name(id,'v')),valIds.map(id=>Math.round(valV[id])),valIds.map(id=>color(id)),false,
+    i=>drill('Billable value · '+name(valIds[i],'v'),e=>e.billable&&e.ventureId===valIds[i]));
   // top activities
   const byA={};ents.forEach(e=>byA[e.activityId]=(byA[e.activityId]||0)+e.minutes);
   const aIds=Object.keys(byA).sort((a,b)=>byA[b]-byA[a]).slice(0,12);
-  drawBarH('chActivity',aIds.map(id=>actName(id)),aIds.map(id=>+(byA[id]/60).toFixed(2)),aIds.map(id=>{const a=state.activities.find(x=>x.id===id);return a?color(a.ventureId):'#999';}));
+  drawBarH('chActivity',aIds.map(id=>actName(id)),aIds.map(id=>+(byA[id]/60).toFixed(2)),aIds.map(id=>{const a=state.activities.find(x=>x.id===id);return a?color(a.ventureId):'#999';}),
+    i=>drill('Activity · '+actName(aIds[i]),e=>e.activityId===aIds[i]));
   // billable value by activity
   const valA={};ents.filter(e=>e.billable).forEach(e=>valA[e.activityId]=(valA[e.activityId]||0)+e.minutes/60*(e.rate||0));
   const valAIds=Object.keys(valA).sort((a,b)=>valA[b]-valA[a]).slice(0,12);
-  drawBarH('chValueAct',valAIds.map(id=>actName(id)),valAIds.map(id=>Math.round(valA[id])),valAIds.map(id=>{const a=state.activities.find(x=>x.id===id);return a?color(a.ventureId):'#999';}));
+  drawBarH('chValueAct',valAIds.map(id=>actName(id)),valAIds.map(id=>Math.round(valA[id])),valAIds.map(id=>{const a=state.activities.find(x=>x.id===id);return a?color(a.ventureId):'#999';}),
+    i=>drill('Billable · '+actName(valAIds[i]),e=>e.billable&&e.activityId===valAIds[i]));
 }
+function bucketKey(e,useWeek){const d=new Date(e.date);if(useWeek){const wd=new Date(d);wd.setDate(d.getDate()-((d.getDay()+6)%7));return wd.toISOString().slice(5,10);}return e.date.slice(5);}
 function timeBuckets(ents,useWeek){
   const map={};
-  ents.forEach(e=>{let key;const d=new Date(e.date);
-    if(useWeek){const wd=new Date(d);wd.setDate(d.getDate()-((d.getDay()+6)%7));key=wd.toISOString().slice(5,10);}
-    else key=e.date.slice(5);
-    map[key]=(map[key]||0)+e.minutes;});
+  ents.forEach(e=>{const key=bucketKey(e,useWeek);map[key]=(map[key]||0)+e.minutes;});
   const labels=Object.keys(map).sort();return {labels,data:labels.map(k=>+(map[k]/60).toFixed(2))};
 }
 function daySpan(ents){if(!ents.length)return 1;const ds=ents.map(e=>new Date(e.date).getTime());return Math.ceil((Math.max(...ds)-Math.min(...ds))/86400000)+1;}
@@ -638,25 +653,50 @@ function color(vid){const v=state.ventures.find(x=>x.id===vid);return v?v.color:
 const PALETTE=['#6C5CE7','#2D9CDB','#F2994A','#27AE60','#EB5757','#9B51E0','#56CCF2','#F2C94C','#219653','#BB6BD9'];
 function palette(i){return PALETTE[i%PALETTE.length];}
 
-function drawDoughnut(id,labels,data,colors){
+function drawDoughnut(id,labels,data,colors,onSel){
   if(charts[id])charts[id].destroy();
   if(!data.length){blank(id);return;}
   charts[id]=new Chart(document.getElementById(id),{type:'doughnut',data:{labels,datasets:[{data,backgroundColor:colors,borderWidth:2,borderColor:'#fff'}]},
-    options:{plugins:{legend:{position:'right',labels:{boxWidth:10,font:{size:11},padding:8}}},cutout:'62%'}});
+    options:{onClick:(e,els)=>{if(onSel&&els.length)onSel(els[0].index);},onHover:(e,els)=>{if(e.native)e.native.target.style.cursor=els.length?'pointer':'default';},plugins:{legend:{position:'right',labels:{boxWidth:10,font:{size:11},padding:8}}},cutout:'62%'}});
 }
-function drawBar(id,labels,data,c,fill){
+function drawBar(id,labels,data,c,fill,onSel){
   if(charts[id])charts[id].destroy();
   if(!data.length){blank(id);return;}
   charts[id]=new Chart(document.getElementById(id),{type:'bar',data:{labels,datasets:[{data,backgroundColor:Array.isArray(c)?c:c,borderRadius:6,maxBarThickness:46}]},
-    options:{plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{font:{size:11}}},x:{ticks:{font:{size:10}}}}}});
+    options:{onClick:(e,els)=>{if(onSel&&els.length)onSel(els[0].index);},onHover:(e,els)=>{if(e.native)e.native.target.style.cursor=els.length?'pointer':'default';},plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{font:{size:11}}},x:{ticks:{font:{size:10}}}}}});
 }
-function drawBarH(id,labels,data,colors){
+function drawBarH(id,labels,data,colors,onSel){
   if(charts[id])charts[id].destroy();
   if(!data.length){blank(id);return;}
   charts[id]=new Chart(document.getElementById(id),{type:'bar',data:{labels,datasets:[{data,backgroundColor:colors,borderRadius:5}]},
-    options:{indexAxis:'y',plugins:{legend:{display:false}},scales:{x:{beginAtZero:true,ticks:{font:{size:11}}},y:{ticks:{font:{size:11}}}}}});
+    options:{indexAxis:'y',onClick:(e,els)=>{if(onSel&&els.length)onSel(els[0].index);},onHover:(e,els)=>{if(e.native)e.native.target.style.cursor=els.length?'pointer':'default';},plugins:{legend:{display:false}},scales:{x:{beginAtZero:true,ticks:{font:{size:11}}},y:{ticks:{font:{size:11}}}}}});
 }
 function blank(id){const c=document.getElementById(id);const ctx=c.getContext('2d');ctx.clearRect(0,0,c.width,c.height);ctx.fillStyle='#9aa0ab';ctx.font='13px sans-serif';ctx.textAlign='center';ctx.fillText('No data in this range',c.width/2,c.height/2);}
+
+/* ===== drill-down: click a chart point -> table of every session behind it ===== */
+function drill(title,filterFn){showBreakdown(title,curEnts.filter(filterFn));}
+function showBreakdown(title,ents){
+  const panel=document.getElementById('drillPanel');if(!panel)return;
+  const sorted=[...ents].sort((a,b)=>a.date<b.date?1:a.date>b.date?-1:(b.createdAt||0)-(a.createdAt||0));
+  const totMin=sorted.reduce((s,e)=>s+e.minutes,0);
+  const totVal=sorted.filter(e=>e.billable).reduce((s,e)=>s+e.minutes/60*(e.rate||0),0);
+  let html='<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:4px">'+
+    '<h2 style="margin:0">'+esc(title)+'</h2>'+
+    '<button class="btn ghost sm" onclick="document.getElementById(\'drillPanel\').classList.add(\'hide\')">Close</button></div>'+
+    '<p class="sub">'+sorted.length+' session'+(sorted.length===1?'':'s')+' &middot; '+(totMin/60).toFixed(1)+'h'+(totVal?(' &middot; &pound;'+Math.round(totVal).toLocaleString()):'')+'</p>';
+  if(!sorted.length)html+='<div class="empty">No matching sessions.</div>';
+  else html+='<div style="overflow-x:auto"><table><thead><tr><th>Date</th><th>Venture</th><th>Activity</th><th>Type</th><th>Hours</th><th>Value</th><th>Description</th></tr></thead><tbody>'+
+    sorted.map(e=>{const v=state.ventures.find(x=>x.id===e.ventureId),a=state.activities.find(x=>x.id===e.activityId),t=state.tags.find(x=>x.id===e.tagId);
+      const vv=e.billable?'<span class="pill-bill">&pound;'+(Math.round(e.minutes/60*(e.rate||0)))+'</span>':'<span class="muted">&mdash;</span>';
+      return '<tr style="cursor:pointer" onclick="editEntry(\''+e.id+'\')"><td>'+fmtDate(e.date)+'</td>'+
+        '<td><span class="vdot" style="background:'+(v?v.color:'#ccc')+'"></span> '+esc(v?v.name:'?')+'</td>'+
+        '<td>'+esc(a?a.name:'?')+'</td><td>'+(t?'<span class="tag">'+esc(t.name)+'</span>':'')+'</td>'+
+        '<td>'+(e.minutes/60).toFixed(2)+'h</td><td>'+vv+'</td><td class="muted">'+esc(e.note||'')+'</td></tr>';
+    }).join('')+'</tbody></table></div>';
+  panel.innerHTML=html;
+  panel.classList.remove('hide');
+  panel.scrollIntoView({behavior:'smooth',block:'nearest'});
+}
 
 /* ============================ EXPORT ============================ */
 function exportJSON(){dl(JSON.stringify(state,null,2),'time-data.json','application/json');}
