@@ -104,6 +104,21 @@
   .banner{background:#fff7ed;border:1px solid #fde4c8;color:#9a5b1a;padding:10px 14px;border-radius:10px;font-size:12.5px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
   .tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;max-width:100%}
   .tbl-wrap table{min-width:520px}
+  /* multi-select filter (analytics) */
+  .msel{position:relative}
+  .msel-btn{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;padding:10px 11px;border:1px solid var(--line);border-radius:10px;background:#fff;font-size:14px;font-family:inherit;color:var(--ink);cursor:pointer;text-align:left}
+  .msel-btn:hover{border-color:#cfd4dd}
+  .msel.open .msel-btn{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+  .msel-btn .lbl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .msel-btn .caret{color:var(--muted);font-size:11px;flex:none}
+  .msel-pop{position:absolute;z-index:40;top:calc(100% + 6px);left:0;min-width:240px;max-width:330px;max-height:330px;overflow:auto;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 14px 36px rgba(20,24,40,.16);padding:8px}
+  .msel-tools{display:flex;gap:6px;padding:2px 4px 8px;margin-bottom:4px;border-bottom:1px solid var(--line)}
+  .msel-opt{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:8px;font-size:13.5px;cursor:pointer}
+  .msel-opt:hover{background:#f5f6f9}
+  .msel-opt input[type=checkbox]{width:auto;padding:0;margin:0;flex:none;accent-color:var(--accent);cursor:pointer}
+  .msel-opt .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .msel-grp{font-size:10.5px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:var(--muted);padding:9px 8px 3px;display:flex;align-items:center;gap:6px}
+  .msel-none{font-size:12.5px;color:var(--muted);padding:8px}
   @media(max-width:760px){.kpis{grid-template-columns:repeat(2,1fr)}.chart-grid{grid-template-columns:1fr}.wrap{padding:16px 12px 80px}table{font-size:12.5px}.run-top{flex-wrap:wrap}.run-card .left{min-width:0}.act-row{flex-wrap:wrap}.tabs button{padding:8px 13px}.panel{padding:14px}}
 </style>
 </head>
@@ -195,8 +210,14 @@
         <input type="date" id="customTo" onchange="renderAnalytics()" style="max-width:160px" title="End date (leave blank for a single day)">
         <button class="btn ghost sm" onclick="clearCustom()" title="Clear dates">Clear</button>
       </div>
-      <div style="max-width:210px;flex:1"><select id="a_venture" onchange="renderAnalytics()"></select></div>
-      <div style="max-width:210px;flex:1"><select id="a_activity" onchange="renderAnalytics()" disabled><option value="">All activities</option></select></div>
+      <div class="msel" id="mselV" style="max-width:210px;flex:1">
+        <button type="button" class="msel-btn" onclick="toggleMsel('V',event)"><span class="lbl" id="mselVLbl">All ventures</span><span class="caret">&#9662;</span></button>
+        <div class="msel-pop hide" id="mselVPop"></div>
+      </div>
+      <div class="msel" id="mselA" style="max-width:210px;flex:1">
+        <button type="button" class="msel-btn" onclick="toggleMsel('A',event)"><span class="lbl" id="mselALbl">All activities</span><span class="caret">&#9662;</span></button>
+        <div class="msel-pop hide" id="mselAPop"></div>
+      </div>
       <div class="muted" id="rangeLabel" style="font-size:12.5px"></div>
     </div>
 
@@ -538,6 +559,57 @@ function openActivity(ventureId,id){
     [id?{t:'Delete',c:'danger',f:()=>{if(confirm('Delete activity?')){state.activities=state.activities.filter(x=>x.id!==id);save();closeModal();refreshAll();}}}:null,
      {t:'Save',c:'primary',f:()=>{const n=val('a_name').trim();if(!n){toast('Name needed');return;}if(id){a.name=n;a.defaultBillable=val('a_bill')==='yes';a.defaultRate=parseFloat(val('a_rate'))||0;}else{state.activities.push({id:uid(),ventureId,name:n,defaultBillable:val('a_bill')==='yes',defaultRate:parseFloat(val('a_rate'))||0,archived:false});}save();closeModal();refreshAll();}}].filter(Boolean));
 }
+/* ---- move a whole activity (with its entries + running timers) into another venture ---- */
+function openMoveActivity(id){
+  const a=state.activities.find(x=>x.id===id);if(!a)return;
+  const from=state.ventures.find(v=>v.id===a.ventureId);
+  const ents=state.entries.filter(e=>e.activityId===id);
+  const mins=ents.reduce((s,e)=>s+e.minutes,0);
+  const others=state.ventures.filter(v=>v.id!==a.ventureId);
+  modal('Move activity',
+    '<p class="sub" style="margin:-6px 0 14px">Moving <b>'+esc(a.name)+'</b> out of <b>'+esc(from?from.name:'—')+'</b>. '+
+      ents.length+' entr'+(ents.length===1?'y':'ies')+' ('+(mins/60).toFixed(1)+'h) move with it.</p>'+
+    '<div class="seg" id="mvSeg" style="margin-bottom:14px">'+
+      '<button type="button" data-m="existing" class="'+(others.length?'active':'')+'" onclick="mvMode(\'existing\')">Existing venture</button>'+
+      '<button type="button" data-m="new" class="'+(others.length?'':'active')+'" onclick="mvMode(\'new\')">New venture</button></div>'+
+    '<div id="mvExisting"'+(others.length?'':' class="hide"')+'>'+
+      (others.length?'<label class="fld">Destination venture</label><select id="mv_v">'+others.map(v=>'<option value="'+v.id+'">'+esc(v.name)+'</option>').join('')+'</select>'
+                   :'<div class="muted" style="font-size:13px">No other ventures yet — create one.</div>')+'</div>'+
+    '<div id="mvNew"'+(others.length?' class="hide"':'')+'><label class="fld">New venture name</label><input id="mv_name" placeholder="Venture name">'+
+      '<label class="fld" style="margin-top:12px">Colour</label><input type="color" id="mv_color" value="'+palette(state.ventures.length)+'" style="height:42px;padding:4px"></div>',
+    [{t:'Move activity',c:'primary',f:()=>doMoveActivity(id)}]);
+}
+function mvMode(m){
+  document.querySelectorAll('#mvSeg button').forEach(b=>b.classList.toggle('active',b.dataset.m===m));
+  document.getElementById('mvExisting').classList.toggle('hide',m!=='existing');
+  document.getElementById('mvNew').classList.toggle('hide',m!=='new');
+}
+function doMoveActivity(id){
+  const a=state.activities.find(x=>x.id===id);if(!a)return;
+  const mode=(document.querySelector('#mvSeg button.active')||{dataset:{}}).dataset.m;
+  let targetId;
+  if(mode==='new'){
+    const n=val('mv_name').trim();if(!n){toast('Name needed');return;}
+    const dupe=state.ventures.find(v=>v.name.toLowerCase()===n.toLowerCase());
+    if(dupe)targetId=dupe.id;
+    else{targetId=uid();state.ventures.push({id:targetId,name:n,color:val('mv_color'),archived:false});}
+  }else{
+    targetId=val('mv_v');if(!targetId){toast('Pick a venture');return;}
+  }
+  if(targetId===a.ventureId){toast('Already in that venture');return;}
+  const target=state.ventures.find(v=>v.id===targetId);
+  // same-named activity already there? offer to merge the two
+  const twin=state.activities.find(x=>x.ventureId===targetId&&x.id!==a.id&&x.name.toLowerCase()===a.name.toLowerCase());
+  const merge=twin&&confirm('"'+(target?target.name:'That venture')+'" already has an activity called "'+a.name+'".\n\nOK = merge them into one (entries combine).\nCancel = keep two separate activities.');
+  const newActId=merge?twin.id:a.id;
+  state.entries.forEach(e=>{if(e.activityId===a.id){e.activityId=newActId;e.ventureId=targetId;}});
+  runningTimers.forEach(t=>{if(t.activityId===a.id){t.activityId=newActId;t.ventureId=targetId;}});
+  if(merge)state.activities=state.activities.filter(x=>x.id!==a.id);
+  else a.ventureId=targetId;
+  kvSet('timers',runningTimers);
+  save();closeModal();refreshAll();
+  toast(merge?('Merged into '+(target?target.name:'venture')):('Moved to '+(target?target.name:'venture')));
+}
 function addTag(){modal('New activity type','<label class="fld">Name</label><input id="tg_name" placeholder="e.g. Research">',[{t:'Add',c:'primary',f:()=>{const n=val('tg_name').trim();if(!n)return;state.tags.push({id:uid(),name:n});save();closeModal();refreshAll();}}]);}
 function renderManage(){
   const wrap=document.getElementById('manageWrap');
@@ -548,6 +620,7 @@ function renderManage(){
     const row=(a,isArch)=>'<div class="act-row'+(isArch?' arch':'')+'"><span class="grow">'+esc(a.name)+'</span>'+
       (a.defaultBillable?'<span class="pill-bill">Billable &pound;'+a.defaultRate+'</span>':'<span class="muted" style="font-size:12px">non-billable</span>')+
       ' <button class="btn ghost sm" onclick="toggleArchiveActivity(\''+a.id+'\')">'+(isArch?'Unarchive':'Archive')+'</button>'+
+      ' <button class="btn ghost sm" onclick="openMoveActivity(\''+a.id+'\')" title="Move this activity to another venture">Move</button>'+
       ' <button class="btn ghost sm" onclick="openActivity(\''+v.id+'\',\''+a.id+'\')">Edit</button></div>';
     return '<div class="manage-card"><div class="manage-head"><div class="name"><span class="vdot" style="background:'+v.color+'"></span>'+esc(v.name)+'</div>'+
       '<div><button class="btn ghost sm" onclick="openActivity(\''+v.id+'\')">+ Activity</button> <button class="btn ghost sm" onclick="openVenture(\''+v.id+'\')">Edit</button></div></div>'+
@@ -595,23 +668,48 @@ function renderRecent(){
 
 /* ============================ ANALYTICS ============================ */
 let curRange=30, curEnts=[];
+/* Filters keep the DESELECTED ids, so everything (including anything added later) is on by default. */
+const vOff=new Set(), aOff=new Set();
+function selVentures(){return state.ventures.filter(v=>!vOff.has(v.id));}
+function ventureActivities(){const on=new Set(selVentures().map(v=>v.id));return state.activities.filter(a=>on.has(a.ventureId));}
+function toggleMsel(k,ev){
+  if(ev)ev.stopPropagation();
+  const box=document.getElementById('msel'+k),pop=document.getElementById('msel'+k+'Pop');
+  const wasOpen=!pop.classList.contains('hide');
+  closeAllMsel();
+  if(!wasOpen){pop.classList.remove('hide');box.classList.add('open');}
+}
+function closeAllMsel(){['V','A'].forEach(k=>{const p=document.getElementById('msel'+k+'Pop'),b=document.getElementById('msel'+k);if(p)p.classList.add('hide');if(b)b.classList.remove('open');});}
+document.addEventListener('click',e=>{if(!(e.target.closest&&e.target.closest('.msel')))closeAllMsel();});
+function toggleVentureFilter(id,on){on?vOff.delete(id):vOff.add(id);renderAnalytics();}
+function toggleActivityFilter(id,on){on?aOff.delete(id):aOff.add(id);renderAnalytics();}
+function setAllVentures(on){state.ventures.forEach(v=>on?vOff.delete(v.id):vOff.add(v.id));renderAnalytics();}
+function setAllActivities(on){ventureActivities().forEach(a=>on?aOff.delete(a.id):aOff.add(a.id));renderAnalytics();}
+function renderFilterMenus(){
+  // ventures
+  const vs=state.ventures, vOn=selVentures();
+  document.getElementById('mselVLbl').textContent =
+    !vs.length?'No ventures':vOn.length===vs.length?('All ventures ('+vs.length+')'):!vOn.length?'No ventures selected':vOn.length===1?vOn[0].name:(vOn.length+' of '+vs.length+' ventures');
+  document.getElementById('mselVPop').innerHTML =
+    '<div class="msel-tools"><button type="button" class="btn ghost sm" onclick="setAllVentures(true)">Select all</button><button type="button" class="btn ghost sm" onclick="setAllVentures(false)">Clear</button></div>'+
+    (vs.length?vs.map(v=>'<label class="msel-opt"><input type="checkbox" '+(vOff.has(v.id)?'':'checked')+' onchange="toggleVentureFilter(\''+v.id+'\',this.checked)"><span class="vdot" style="background:'+v.color+'"></span><span class="nm">'+esc(v.name)+'</span></label>').join('')
+             :'<div class="msel-none">No ventures yet.</div>');
+  // activities (only those inside the selected ventures, grouped by venture)
+  const acts=ventureActivities(), aOn=acts.filter(a=>!aOff.has(a.id));
+  document.getElementById('mselALbl').textContent =
+    !acts.length?'No activities':aOn.length===acts.length?('All activities ('+acts.length+')'):!aOn.length?'No activities selected':aOn.length===1?aOn[0].name:(aOn.length+' of '+acts.length+' activities');
+  document.getElementById('mselAPop').innerHTML =
+    '<div class="msel-tools"><button type="button" class="btn ghost sm" onclick="setAllActivities(true)">Select all</button><button type="button" class="btn ghost sm" onclick="setAllActivities(false)">Clear</button></div>'+
+    (acts.length?selVentures().map(v=>{
+        const mine=acts.filter(a=>a.ventureId===v.id);if(!mine.length)return'';
+        return '<div class="msel-grp"><span class="vdot" style="background:'+v.color+'"></span>'+esc(v.name)+'</div>'+
+          mine.map(a=>'<label class="msel-opt"><input type="checkbox" '+(aOff.has(a.id)?'':'checked')+' onchange="toggleActivityFilter(\''+a.id+'\',this.checked)"><span class="nm">'+esc(a.name)+(a.archived?' <span class="muted">(archived)</span>':'')+'</span></label>').join('');
+      }).join('')
+      :'<div class="msel-none">No activities in the selected ventures.</div>');
+}
 function renderAnalytics(){
   {const dp=document.getElementById('drillPanel');if(dp)dp.classList.add('hide');}
-  // venture filter
-  const af=document.getElementById('a_venture');const cur=af.value;
-  af.innerHTML='<option value="">All ventures</option>'+state.ventures.map(v=>'<option value="'+v.id+'">'+esc(v.name)+'</option>').join('');
-  if(cur)af.value=cur;
-  const vFilter=af.value;
-  // activity sub-filter (depends on selected venture)
-  const actSel=document.getElementById('a_activity');const curA=actSel.value;
-  if(vFilter){
-    actSel.disabled=false;
-    actSel.innerHTML='<option value="">All activities</option>'+state.activities.filter(a=>a.ventureId===vFilter).map(a=>'<option value="'+a.id+'">'+esc(a.name)+(a.archived?' (archived)':'')+'</option>').join('');
-    actSel.value=(curA&&state.activities.some(a=>a.id===curA&&a.ventureId===vFilter))?curA:'';
-  }else{
-    actSel.disabled=true;actSel.innerHTML='<option value="">All activities</option>';actSel.value='';
-  }
-  const aFilter=actSel.value;
+  renderFilterMenus();
   // date range (string bounds YYYY-MM-DD; presets have no upper bound)
   document.getElementById('customDates').classList.toggle('hide',curRange!=='custom');
   let fromStr=null,toStr=null,rangeTxt='';
@@ -627,7 +725,7 @@ function renderAnalytics(){
     rangeTxt='Since '+fromStr;
   }
   document.getElementById('rangeLabel').textContent=rangeTxt;
-  let ents=state.entries.filter(e=>(!fromStr||e.date>=fromStr)&&(!toStr||e.date<=toStr)&&(!vFilter||e.ventureId===vFilter)&&(!aFilter||e.activityId===aFilter));
+  let ents=state.entries.filter(e=>(!fromStr||e.date>=fromStr)&&(!toStr||e.date<=toStr)&&!vOff.has(e.ventureId)&&!aOff.has(e.activityId));
   curEnts=ents;
   const totMin=ents.reduce((s,e)=>s+e.minutes,0);
   const value=ents.filter(e=>e.billable).reduce((s,e)=>s+e.minutes/60*(e.rate||0),0);
